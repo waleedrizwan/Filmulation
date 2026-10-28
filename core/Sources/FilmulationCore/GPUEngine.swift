@@ -2,6 +2,18 @@ import CoreGraphics
 import Foundation
 import Metal
 
+public enum GPUEngineError: Error, CustomStringConvertible {
+    case tooLarge(width: Int, height: Int, max: Int)
+    case cannotAllocate(width: Int, height: Int)
+
+    public var description: String {
+        switch self {
+        case .tooLarge(let w, let h, let max): return "\(w)×\(h) is larger than the GPU's \(max) px limit"
+        case .cannotAllocate(let w, let h): return "not enough GPU memory for a \(w)×\(h) image"
+        }
+    }
+}
+
 /// A photo uploaded to the GPU once, then rendered with any settings in a few milliseconds.
 public final class GPUImage: @unchecked Sendable {
     public let width: Int
@@ -20,7 +32,12 @@ public final class GPUImage: @unchecked Sendable {
 public final class GPUEngine: @unchecked Sendable {
     public static let shared: GPUEngine? = try? GPUEngine()
 
+    /// Side length of the tiles that photos too big for one texture are rendered in.
+    static let tileSize = 8192
+
     let device: MTLDevice
+    /// Largest texture width or height this GPU accepts; `upload` refuses anything bigger.
+    public let maxTextureSize: Int
     private let queue: MTLCommandQueue
     private let pipeline: MTLComputePipelineState
     private let identityLUT: MTLTexture
@@ -33,23 +50,36 @@ public final class GPUEngine: @unchecked Sendable {
         }
         self.device = device
         self.queue = queue
+        // Apple-silicon and Mac GPUs take 16384 px textures; older iOS GPUs only 8192
+        maxTextureSize = device.supportsFamily(.apple3) || device.supportsFamily(.mac2) ? 16384 : 8192
         let library = try device.makeLibrary(source: Self.shaderSource, options: nil)
         pipeline = try device.makeComputePipelineState(function: library.makeFunction(name: "film")!)
-        identityLUT = Self.makeLUTTexture(device: device, size: 2, table: [0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0,
-                                                                          0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1])
+        identityLUT = try Self.makeLUTTexture(device: device, size: 2, table: [0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0,
+                                                                              0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1])
     }
 
-    public func upload(_ image: RGBA8Image) -> GPUImage {
-        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: image.width,
-                                                            height: image.height, mipmapped: false)
-        desc.usage = .shaderRead
-        desc.storageMode = .shared
-        let tex = device.makeTexture(descriptor: desc)!
+    /// Uploads a photo that fits in one texture (see `maxTextureSize`); use `render(_: RGBA8Image, ...)` for any size.
+    public func upload(_ image: RGBA8Image) throws -> GPUImage {
+        let tex = try makeTexture(width: image.width, height: image.height, usage: .shaderRead)
         image.bytes.withUnsafeBytes { buf in
             tex.replace(region: MTLRegionMake2D(0, 0, image.width, image.height), mipmapLevel: 0,
                         withBytes: buf.baseAddress!, bytesPerRow: image.width * 4)
         }
         return GPUImage(texture: tex)
+    }
+
+    private func makeTexture(width: Int, height: Int, usage: MTLTextureUsage) throws -> MTLTexture {
+        guard width <= maxTextureSize, height <= maxTextureSize else {
+            throw GPUEngineError.tooLarge(width: width, height: height, max: maxTextureSize)
+        }
+        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: width, height: height,
+                                                            mipmapped: false)
+        desc.usage = usage
+        desc.storageMode = .shared
+        guard let tex = device.makeTexture(descriptor: desc) else {
+            throw GPUEngineError.cannotAllocate(width: width, height: height)
+        }
+        return tex
     }
 
     /// Loads all look LUTs onto the GPU ahead of time so the first tap is instant.
@@ -63,21 +93,21 @@ public final class GPUEngine: @unchecked Sendable {
         if let t = luts[stem] { lock.unlock(); return t }
         lock.unlock()
         let cube = try Looks.lut(for: look, camera: camera)
-        let tex = Self.makeLUTTexture(device: device, size: cube.size, table: cube.table)
+        let tex = try Self.makeLUTTexture(device: device, size: cube.size, table: cube.table)
         lock.lock()
         luts[stem] = tex
         lock.unlock()
         return tex
     }
 
-    static func makeLUTTexture(device: MTLDevice, size n: Int, table: [Float]) -> MTLTexture {
+    static func makeLUTTexture(device: MTLDevice, size n: Int, table: [Float]) throws -> MTLTexture {
         let desc = MTLTextureDescriptor()
         desc.textureType = .type3D
         desc.pixelFormat = .rgba32Float
         desc.width = n; desc.height = n; desc.depth = n
         desc.usage = .shaderRead
         desc.storageMode = .shared
-        let tex = device.makeTexture(descriptor: desc)!
+        guard let tex = device.makeTexture(descriptor: desc) else { throw GPUEngineError.cannotAllocate(width: n, height: n) }
         var rgba = [Float](repeating: 1, count: n * n * n * 4)
         for i in 0..<(n * n * n) {
             rgba[i * 4] = table[i * 3]; rgba[i * 4 + 1] = table[i * 3 + 1]; rgba[i * 4 + 2] = table[i * 3 + 2]
@@ -91,20 +121,48 @@ public final class GPUEngine: @unchecked Sendable {
 
     /// Renders `image` with `settings` and returns 8-bit sRGB pixels.
     public func render(_ image: GPUImage, settings: RenderSettings, seed: UInt32 = 1) throws -> RGBA8Image {
-        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: image.width,
-                                                            height: image.height, mipmapped: false)
-        desc.usage = .shaderWrite
-        desc.storageMode = .shared
-        let out = device.makeTexture(descriptor: desc)!
+        try render(image, settings: settings, seed: seed, origin: (0, 0),
+                   fullSize: (image.width, image.height))
+    }
+
+    /// Renders a photo of any size: in one pass when it fits in a texture, otherwise tile by tile.
+    /// Tiles give exactly the same pixels as one pass (the grain follows the position in the whole photo).
+    public func render(_ image: RGBA8Image, settings: RenderSettings, seed: UInt32 = 1) throws -> RGBA8Image {
+        try render(image, settings: settings, seed: seed, tileSize: Self.tileSize)
+    }
+
+    func render(_ image: RGBA8Image, settings: RenderSettings, seed: UInt32, tileSize: Int,
+                forceTiles: Bool = false) throws -> RGBA8Image {
+        if !forceTiles, image.width <= maxTextureSize, image.height <= maxTextureSize {
+            return try render(upload(image), settings: settings, seed: seed)
+        }
+        var out = RGBA8Image(width: image.width, height: image.height,
+                             bytes: [UInt8](repeating: 0, count: image.bytes.count))
+        for y in stride(from: 0, to: image.height, by: tileSize) {
+            for x in stride(from: 0, to: image.width, by: tileSize) {
+                let tile = image.crop(x: x, y: y, width: min(tileSize, image.width - x),
+                                      height: min(tileSize, image.height - y))
+                let done = try render(upload(tile), settings: settings, seed: seed, origin: (x, y),
+                                      fullSize: (image.width, image.height))
+                out.paste(done, x: x, y: y)
+            }
+        }
+        return out
+    }
+
+    /// One pass over `image`, which sits at `origin` in a photo of `fullSize` (for grain size and position).
+    private func render(_ image: GPUImage, settings: RenderSettings, seed: UInt32, origin: (x: Int, y: Int),
+                        fullSize: (width: Int, height: Int)) throws -> RGBA8Image {
+        let out = try makeTexture(width: image.width, height: image.height, usage: .shaderWrite)
 
         let a = settings.adjustments
         var params = Params(
             strength: settings.look == nil && a.isNeutral ? 0 : settings.strength,
             grainStrength: settings.grain.strength,
-            grainScale: Float(max(image.width, image.height)) / 3000 * settings.grainSize.factor,
+            grainScale: Float(max(fullSize.width, fullSize.height)) / 3000 * settings.grainSize.factor,
             exposure: a.exposure, wbRed: a.wbRed, wbBlue: a.wbBlue, highlight: a.highlight, shadow: a.shadow,
             color: a.color, chrome: a.chrome, chromeBlue: a.chromeBlue,
-            seed: seed)
+            seed: seed, originX: UInt32(origin.x), originY: UInt32(origin.y))
         // At zero strength the look isn't used, so don't require its file
         let lut = params.strength > 0
             ? try settings.look.map { try lutTexture(for: $0, camera: settings.camera) } ?? identityLUT
@@ -150,6 +208,8 @@ public final class GPUEngine: @unchecked Sendable {
         var chrome: Float
         var chromeBlue: Float
         var seed: UInt32
+        var originX: UInt32
+        var originY: UInt32
     }
 
     static let shaderSource = """
@@ -160,7 +220,7 @@ public final class GPUEngine: @unchecked Sendable {
         float strength; float grainStrength; float grainScale;
         float exposure; float wbRed; float wbBlue; float highlight; float shadow;
         float color; float chrome; float chromeBlue;
-        uint seed;
+        uint seed; uint originX; uint originY;
     };
 
     static float3 toLinear(float3 c) {
@@ -267,7 +327,8 @@ public final class GPUEngine: @unchecked Sendable {
         if (p.grainStrength > 0.0) {
             float luma = dot(o, float3(0.2126, 0.7152, 0.0722));
             float response = pow(clamp(4.0 * luma * (1.0 - luma), 0.0, 1.0), 0.7);
-            o += p.grainStrength * response * grain(float2(gid), p.grainScale, p.seed);
+            float2 pos = float2(gid) + float2(p.originX, p.originY);   // position in the whole photo
+            o += p.grainStrength * response * grain(pos, p.grainScale, p.seed);
         }
         dst.write(float4(saturate(o), 1.0), gid);
     }

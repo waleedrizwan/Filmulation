@@ -42,6 +42,25 @@ public struct RGBA8Image: Sendable {
     public let width: Int
     public let height: Int
     public var bytes: [UInt8]
+
+    /// A copy of the rectangle at (x, y).
+    func crop(x: Int, y: Int, width w: Int, height h: Int) -> RGBA8Image {
+        var out = [UInt8](repeating: 0, count: w * h * 4)
+        for row in 0..<h {
+            let src = ((y + row) * width + x) * 4
+            out.replaceSubrange((row * w * 4)..<((row + 1) * w * 4), with: bytes[src..<(src + w * 4)])
+        }
+        return RGBA8Image(width: w, height: h, bytes: out)
+    }
+
+    /// Copies `image` in with its top-left corner at (x, y).
+    mutating func paste(_ image: RGBA8Image, x: Int, y: Int) {
+        let w = image.width
+        for row in 0..<image.height {
+            let dst = ((y + row) * width + x) * 4
+            bytes.replaceSubrange(dst..<(dst + w * 4), with: image.bytes[(row * w * 4)..<((row + 1) * w * 4)])
+        }
+    }
 }
 
 public enum PhotoIO {

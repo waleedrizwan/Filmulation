@@ -45,11 +45,14 @@ var detail = ""
 if useCPU || GPUEngine.shared == nil {
     cg = PhotoIO.cgImage(from: try Renderer.renderCPU(PhotoIO.rgbImage(from: pixels), settings: settings))
     detail = "CPU"
+} else if max(pixels.width, pixels.height) > GPUEngine.shared!.maxTextureSize {
+    cg = PhotoIO.cgImage(from: try GPUEngine.shared!.render(pixels, settings: settings))
+    detail = "GPU, in tiles"
 } else {
     let gpu = GPUEngine.shared!
     gpu.preloadLooks()
     let up0 = Date()
-    let img = gpu.upload(pixels)
+    let img = try gpu.upload(pixels)
     let r0 = Date()
     _ = try gpu.render(img, settings: settings)            // warm-up
     let r1 = Date()

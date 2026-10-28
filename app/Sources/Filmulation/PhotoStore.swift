@@ -115,7 +115,7 @@ final class PhotoStore {
             do {
                 let pixels = try PhotoIO.loadRGBA8(.url(url), maxPixelSize: Self.previewSize)
                 let gpu = try Self.engine()
-                let img = gpu.upload(pixels)
+                let img = try gpu.upload(pixels)
                 let cg = PhotoIO.cgImage(from: pixels)
                 await MainActor.run {
                     guard token == self.photoToken else { return }
@@ -172,8 +172,7 @@ final class PhotoStore {
         let camera = settings.camera
         Task.detached(priority: .utility) {
             guard let small = try? PhotoIO.loadRGBA8(.url(url), maxPixelSize: Self.swatchSize),
-                  let gpu = GPUEngine.shared else { return }
-            let img = gpu.upload(small)
+                  let gpu = GPUEngine.shared, let img = try? gpu.upload(small) else { return }
             for look in Looks.available(for: camera) {
                 guard let cg = try? gpu.renderCGImage(img, settings: RenderSettings(look: look, camera: camera))
                 else { continue }

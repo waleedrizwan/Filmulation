@@ -61,7 +61,7 @@ public enum Renderer {
     public static func render(_ source: PhotoSource, settings: RenderSettings) throws -> CGImage {
         let pixels = try PhotoIO.loadRGBA8(source)
         if let gpu = GPUEngine.shared {
-            return try gpu.renderCGImage(gpu.upload(pixels), settings: settings)
+            return PhotoIO.cgImage(from: try gpu.render(pixels, settings: settings))
         }
         return PhotoIO.cgImage(from: try renderCPU(PhotoIO.rgbImage(from: pixels), settings: settings))
     }

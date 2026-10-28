@@ -100,11 +100,11 @@ final class EditorStore {
         isLoading = true
         Task.detached(priority: .userInitiated) {
             guard let gpu = GPUEngine.shared,
-                  let pixels = try? PhotoIO.loadRGBA8(source, maxPixelSize: Self.previewSize) else {
+                  let pixels = try? PhotoIO.loadRGBA8(source, maxPixelSize: Self.previewSize),
+                  let img = try? gpu.upload(pixels) else {
                 await MainActor.run { self.isLoading = false; self.toast = "Couldn't open that photo" }
                 return
             }
-            let img = gpu.upload(pixels)
             let cg = PhotoIO.cgImage(from: pixels)
             await MainActor.run {
                 guard token == self.photoToken else { return }
@@ -151,8 +151,8 @@ final class EditorStore {
         let camera = settings.camera
         Task.detached(priority: .utility) {
             guard let gpu = GPUEngine.shared,
-                  let small = try? PhotoIO.loadRGBA8(source, maxPixelSize: Self.swatchSize) else { return }
-            let img = gpu.upload(small)
+                  let small = try? PhotoIO.loadRGBA8(source, maxPixelSize: Self.swatchSize),
+                  let img = try? gpu.upload(small) else { return }
             var all: [String: CGImage] = [:]
             for look in Looks.available(for: camera) {
                 all[look.id] = try? gpu.renderCGImage(img, settings: RenderSettings(look: look, camera: camera))

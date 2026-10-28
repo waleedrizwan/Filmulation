@@ -57,8 +57,29 @@ final class CoreTests: XCTestCase {
     func testGPUStrengthZeroAndNoGrainIsIdentity() throws {
         let gpu = try XCTUnwrap(GPUEngine.shared)
         let src = randomImage(64, 48)
-        let out = try gpu.render(gpu.upload(src), settings: RenderSettings(look: syntheticLook(), strength: 0))
+        let out = try gpu.render(try gpu.upload(src), settings: RenderSettings(look: syntheticLook(), strength: 0))
         for i in 0..<(64 * 48) { for ch in 0..<3 { XCTAssertEqual(out.bytes[i * 4 + ch], src.bytes[i * 4 + ch]) } }
+    }
+
+    func testTiledRenderMatchesOnePass() throws {
+        let gpu = try XCTUnwrap(GPUEngine.shared)
+        let src = randomImage(301, 197)   // tiles of 64 leave ragged edges on both sides
+        var settings = RenderSettings(look: syntheticLook(), strength: 0.8, grain: .strong, grainSize: .large)
+        settings.adjustments.exposure = 0.5
+        settings.adjustments.color = 2
+        let whole = try gpu.render(try gpu.upload(src), settings: settings)
+        let tiled = try gpu.render(src, settings: settings, seed: 1, tileSize: 64, forceTiles: true)
+        XCTAssertEqual(tiled.bytes, whole.bytes)
+    }
+
+    func testPhotosBiggerThanATextureRenderInsteadOfCrashing() throws {
+        let gpu = try XCTUnwrap(GPUEngine.shared)
+        let wide = randomImage(gpu.maxTextureSize + 616, 2)
+        XCTAssertThrowsError(try gpu.upload(wide)) { XCTAssertTrue($0 is GPUEngineError) }
+        let out = try gpu.render(wide, settings: RenderSettings(look: syntheticLook(), grain: .weak))
+        XCTAssertEqual(out.width, wide.width)
+        XCTAssertEqual(out.bytes.count, wide.bytes.count)
+        XCTAssertTrue(stride(from: 3, to: out.bytes.count, by: 4).allSatisfy { out.bytes[$0] == 255 }, "every tile written")
     }
 
     func testStrengthZeroDoesNotNeedTheLookFile() throws {
@@ -67,18 +88,18 @@ final class CoreTests: XCTestCase {
         let gpu = try XCTUnwrap(GPUEngine.shared)
         let src = randomImage(16, 16)
         let rgb = { (img: RGBA8Image) in img.bytes.enumerated().filter { $0.offset % 4 != 3 }.map(\.element) }
-        XCTAssertEqual(rgb(try gpu.render(gpu.upload(src), settings: settings)), rgb(src))
+        XCTAssertEqual(rgb(try gpu.render(try gpu.upload(src), settings: settings)), rgb(src))
         let base = PhotoIO.rgbImage(from: src)
         XCTAssertEqual(try Renderer.renderCPU(base, settings: settings).pixels, base.pixels)
         // At any other strength the missing file is an error, not a silent no-op
-        XCTAssertThrowsError(try gpu.render(gpu.upload(src), settings: RenderSettings(look: missing)))
+        XCTAssertThrowsError(try gpu.render(try gpu.upload(src), settings: RenderSettings(look: missing)))
     }
 
     func testDefaultSettingsRenderWhetherOrNotLooksAreInstalled() throws {
         let settings = RenderSettings()
         XCTAssertEqual(settings.look, Looks.available(for: nil).first)
         let gpu = try XCTUnwrap(GPUEngine.shared)
-        XCTAssertNoThrow(try gpu.render(gpu.upload(randomImage(16, 16)), settings: settings))
+        XCTAssertNoThrow(try gpu.render(try gpu.upload(randomImage(16, 16)), settings: settings))
     }
 
     func testGPUGrainStrengthMatchesCPUGrain() throws {
@@ -89,7 +110,7 @@ final class CoreTests: XCTestCase {
         for amount in [GrainAmount.weak, .strong] {
             for size in GrainSize.allCases {
                 let s = RenderSettings(look: nil, grain: amount, grainSize: size)
-                let g = try gpu.render(gpu.upload(grey), settings: s)
+                let g = try gpu.render(try gpu.upload(grey), settings: s)
                 let c = try Renderer.renderCPU(PhotoIO.rgbImage(from: grey), settings: s)
                 let gv = stride(from: 0, to: g.bytes.count, by: 4).map { Float(g.bytes[$0]) / 255 }
                 let cv = stride(from: 0, to: c.pixels.count, by: 3).map { c.pixels[$0] }
@@ -132,7 +153,7 @@ final class CoreTests: XCTestCase {
         let src = randomImage(97, 61)
         for look in looks {
             let settings = RenderSettings(look: look, strength: 1)
-            let g = try gpu.render(gpu.upload(src), settings: settings)
+            let g = try gpu.render(try gpu.upload(src), settings: settings)
             let c = try Renderer.renderCPU(PhotoIO.rgbImage(from: src), settings: settings)
             var worst = 0
             for i in 0..<(src.width * src.height) {
@@ -189,7 +210,7 @@ final class CoreTests: XCTestCase {
         try requireInstalledLooks()
         try XCTSkipIf(Looks.cameraLUTs.isEmpty, "per-camera look files not installed")
         let gpu = try XCTUnwrap(GPUEngine.shared)
-        let img = gpu.upload(randomImage(64, 64))
+        let img = try gpu.upload(randomImage(64, 64))
         let eterna = Looks.look("eterna")!
         let shared = try gpu.render(img, settings: RenderSettings(look: eterna))
         for id in ["x-t5", "x-h1", "gfx100II"] {
@@ -216,7 +237,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(Recipes.available(for: Cameras.camera("x-h1")).allSatisfy { $0.sensor == 3 }, true)
 
         let gpu = try XCTUnwrap(GPUEngine.shared)
-        let img = gpu.upload(randomImage(48, 48))
+        let img = try gpu.upload(randomImage(48, 48))
         let plain = try gpu.render(img, settings: RenderSettings(look: Looks.look("classic-chrome")))
         var s = r.apply(to: RenderSettings())
         s.grain = .off
@@ -227,7 +248,7 @@ final class CoreTests: XCTestCase {
     func testMonochromeLooksAreGrey() throws {
         try requireInstalledLooks()
         let gpu = try XCTUnwrap(GPUEngine.shared)
-        let img = gpu.upload(randomImage(32, 32))
+        let img = try gpu.upload(randomImage(32, 32))
         for id in ["monochrome", "monochrome-r", "acros-ye", "acros-g"] {
             let out = try gpu.render(img, settings: RenderSettings(look: Looks.look(id)!))
             for i in stride(from: 0, to: out.bytes.count, by: 4) {
