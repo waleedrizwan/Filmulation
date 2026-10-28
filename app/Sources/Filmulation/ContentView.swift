@@ -18,7 +18,8 @@ struct ContentView: View {
                     } else {
                         BeforeAfterView(before: store.original, after: store.rendered,
                                         lookName: store.settings.look?.name ?? "Original",
-                                        busy: store.isRendering, showBefore: $store.showBefore)
+                                        busy: store.isRendering, error: store.renderError,
+                                        showBefore: $store.showBefore)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

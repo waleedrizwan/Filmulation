@@ -1,6 +1,6 @@
 # Filmulation (Mac app)
 
-Applies film looks to any photo. No look files are included yet.
+Applies film looks to any photo. No look files are included yet, so out of the box the only look is **Original** (grain and export still work) and the recipe list is empty. The `filmulate-cli` example below needs an installed look.
 
 ```bash
 ./build_app.sh                      # builds build/Filmulation.app (release, ad-hoc signed)
@@ -13,7 +13,7 @@ swift run --package-path ../core -c release filmulate-cli in.jpg classic-chrome 
 
 - **Add photos:** drag photos or a folder into the window or onto the Dock icon, or use ⌘O. HEIC, JPEG, PNG, TIFF and WebP are supported. iPhone rotation and Display P3 colour are handled.
 - **Recipe:** browse community recipes. Picking one sets the look, grain, tone, colour, Color Chrome, white-balance shift and exposure.
-- **Look:** pick a film simulation. Each row previews the current photo and says what the look does.
+- **Look:** pick a film simulation, or **Original** for no look. Each row previews the current photo and says what the look does. If a look can't be applied, the photo shows the original with a message saying why.
 - **Strength:** mixes the look with the original, from 0 to 100%.
 - **Grain:** Off / Weak / Strong, Small / Large. It is monochrome and fades in shadows and highlights.
 - **Before / After:** use the button under the photo, or press Space. Changing any setting jumps back to After.

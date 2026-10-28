@@ -59,7 +59,12 @@ public enum Looks {
 
     /// Looks for a camera (all for "any camera"), skipping any whose file wasn't generated.
     public static func available(for camera: Camera?) -> [Look] {
-        all.filter { (camera?.looks.contains($0.id) ?? true) && fileURL(lutFile(for: $0, camera: camera)) != nil }
+        all.filter { (camera?.looks.contains($0.id) ?? true) && isInstalled($0, camera: camera) }
+    }
+
+    /// Whether the LUT file for a look (on this camera) has been generated.
+    public static func isInstalled(_ look: Look, camera: Camera?) -> Bool {
+        fileURL(lutFile(for: look, camera: camera)) != nil
     }
 
     /// File stem of the LUT for a look on a camera: the camera's own Eterna / Bleach Bypass when Fujifilm
@@ -80,6 +85,11 @@ public enum Looks {
             }
             return try CubeLUT(binaryContentsOf: url)
         }
+    }
+
+    /// Uses `lut` for a file stem instead of loading it from the bundle (tests, which can't rely on installed looks).
+    static func register(_ lut: CubeLUT, stem: String) {
+        cache.insert(lut, for: stem)
     }
 
     /// Inside Filmulation.app the LUTs live in Contents/Resources/LUTs (see build_app.sh);
@@ -107,5 +117,11 @@ private final class LUTCache: @unchecked Sendable {
         let l = try load()
         luts[id] = l
         return l
+    }
+
+    func insert(_ lut: CubeLUT, for id: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        luts[id] = lut
     }
 }

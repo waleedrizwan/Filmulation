@@ -31,6 +31,8 @@ final class PhotoStore {
     private(set) var rendered: CGImage?
     private(set) var swatches: [String: CGImage] = [:]
     private(set) var isRendering = false
+    /// Why the current settings couldn't be rendered (shown over the original instead of the look).
+    private(set) var renderError: String?
     private(set) var exportProgress: (done: Int, total: Int)?
     var message: String?
     /// true while the user is looking at the untouched original; any settings change flips back to the look.
@@ -104,6 +106,7 @@ final class PhotoStore {
         photoToken += 1
         base = nil
         original = nil; rendered = nil; swatches = [:]
+        renderError = nil
         showBefore = false
         guard let url = selected?.url else { return }
         let token = photoToken
@@ -140,8 +143,8 @@ final class PhotoStore {
     var availableLooks: [Look] { Looks.available(for: settings.camera) }
     var availableRecipes: [Recipe] { Recipes.available(for: settings.camera) }
 
-    /// Picking a look by hand leaves any recipe (its tone/colour adjustments are dropped, grain is kept).
-    func chooseLook(_ look: Look) {
+    /// Picking a look (nil = original) by hand leaves any recipe (its tone/colour adjustments are dropped, grain is kept).
+    func chooseLook(_ look: Look?) {
         if recipe != nil { recipe = nil; settings.adjustments = Adjustments() }
         settings.look = look
     }
@@ -149,7 +152,7 @@ final class PhotoStore {
     func chooseCamera(_ camera: Camera?) {
         var s = settings
         s.camera = camera
-        if let look = s.look, !Looks.available(for: camera).contains(look) { s.look = Looks.look("provia") }
+        if let look = s.look, !Looks.available(for: camera).contains(look) { s.look = Looks.available(for: camera).first }
         if let r = recipe, !Recipes.available(for: camera).contains(r) { recipe = nil; s.adjustments = Adjustments() }
         settings = s
         if let url = selected?.url { makeSwatches(url: url, token: photoToken) }
@@ -194,10 +197,13 @@ final class PhotoStore {
         let gen = generation, settings = settings
         isRendering = true
         Task.detached(priority: .userInitiated) {
-            let cg = try? Self.engine().renderCGImage(base, settings: settings)
+            let result = Result { try Self.engine().renderCGImage(base, settings: settings) }
             await MainActor.run {
                 guard gen == self.generation else { return }
-                if let cg { self.rendered = cg }
+                switch result {
+                case .success(let cg): self.rendered = cg; self.renderError = nil
+                case .failure(let error): self.rendered = nil; self.renderError = "\(error)"
+                }
                 self.isRendering = false
             }
         }
@@ -214,7 +220,7 @@ final class PhotoStore {
         panel.canCreateDirectories = true
         panel.prompt = "Export Here"
         panel.message = "Export \(sources.count) photo\(sources.count == 1 ? "" : "s") at full resolution with "
-            + "\(settings.look?.name ?? "no look")\(settings.grain == .off ? "" : ", \(settings.grain.rawValue.lowercased()) grain")"
+            + "\(settings.look?.name ?? "the original colours")\(settings.grain == .off ? "" : ", \(settings.grain.rawValue.lowercased()) grain")"
         guard panel.runModal() == .OK, let folder = panel.url else { return }
 
         let settings = settings

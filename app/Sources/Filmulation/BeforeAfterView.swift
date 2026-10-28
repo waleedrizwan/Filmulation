@@ -6,18 +6,26 @@ struct BeforeAfterView: View {
     let after: CGImage?
     let lookName: String
     let busy: Bool
+    /// Set when the look couldn't be applied; the original is shown with this message instead of a spinner.
+    let error: String?
     @Binding var showBefore: Bool
+
+    private var label: String {
+        if showBefore { return "Before: original" }
+        if let error, after == nil { return "Couldn't apply \(lookName): \(error)" }
+        return "After: \(lookName)"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .topLeading) {
-                if let shown = showBefore ? before : after {
+                if let shown = showBefore ? before : (after ?? (error != nil ? before : nil)) {
                     Image(decorative: shown, scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(alignment: .topLeading) {
-                            Text(showBefore ? "Before: original" : "After: \(lookName)")
+                            Text(label)
                                 .font(.callout.weight(.semibold))
                                 .padding(.horizontal, 10).padding(.vertical, 5)
                                 .background(.black.opacity(0.6), in: Capsule())

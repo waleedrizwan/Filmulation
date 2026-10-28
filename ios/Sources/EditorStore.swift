@@ -34,6 +34,8 @@ final class EditorStore {
     private(set) var rendered: CGImage?
     private(set) var swatches: [String: CGImage] = [:]
     private(set) var isLoading = false
+    /// Why the current settings couldn't be rendered (the preview shows the original with this message).
+    private(set) var renderError: String?
     private(set) var saveProgress: (done: Int, total: Int)?
     var toast: String? {
         didSet { if toast == nil { toastOpensPhotos = false } }
@@ -91,6 +93,7 @@ final class EditorStore {
         photoToken += 1
         generation += 1
         base = nil; original = nil; rendered = nil; swatches = [:]
+        renderError = nil
         showBefore = false
         guard let source = selected?.source else { return }
         let token = photoToken
@@ -119,8 +122,8 @@ final class EditorStore {
     var availableLooks: [Look] { Looks.available(for: settings.camera) }
     var availableRecipes: [Recipe] { Recipes.available(for: settings.camera) }
 
-    /// Picking a look by hand leaves any recipe (its tone/colour adjustments are dropped, grain is kept).
-    func chooseLook(_ look: Look) {
+    /// Picking a look (nil = original) by hand leaves any recipe (its tone/colour adjustments are dropped, grain is kept).
+    func chooseLook(_ look: Look?) {
         if recipe != nil { recipe = nil; settings.adjustments = Adjustments() }
         settings.look = look
     }
@@ -128,7 +131,7 @@ final class EditorStore {
     func chooseCamera(_ camera: Camera?) {
         var s = settings
         s.camera = camera
-        if let look = s.look, !Looks.available(for: camera).contains(look) { s.look = Looks.look("provia") }
+        if let look = s.look, !Looks.available(for: camera).contains(look) { s.look = Looks.available(for: camera).first }
         if let r = recipe, !Recipes.available(for: camera).contains(r) { recipe = nil; s.adjustments = Adjustments() }
         settings = s
         if let source = selected?.source { makeSwatches(source, token: photoToken) }
@@ -164,9 +167,16 @@ final class EditorStore {
         generation += 1
         let gen = generation, settings = settings
         Task.detached(priority: .userInitiated) {
-            let cg = try? GPUEngine.shared?.renderCGImage(base, settings: settings)
+            let result = Result {
+                guard let gpu = GPUEngine.shared else { throw CocoaError(.featureUnsupported) }
+                return try gpu.renderCGImage(base, settings: settings)
+            }
             await MainActor.run {
-                if gen == self.generation, let cg { self.rendered = cg }
+                guard gen == self.generation else { return }
+                switch result {
+                case .success(let cg): self.rendered = cg; self.renderError = nil
+                case .failure(let error): self.rendered = nil; self.renderError = "\(error)"
+                }
             }
         }
     }

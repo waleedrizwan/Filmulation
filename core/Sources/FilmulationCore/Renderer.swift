@@ -10,7 +10,8 @@ public struct RenderSettings: Equatable, Sendable {
     public var camera: Camera?       // nil = any camera (shared looks)
     public var adjustments = Adjustments()
 
-    public init(look: Look? = Looks.look("classic-chrome"), strength: Float = 1,
+    /// The default look is the first installed one, or the original when no look files are installed.
+    public init(look: Look? = Looks.available(for: nil).first, strength: Float = 1,
                 grain: GrainAmount = .off, grainSize: GrainSize = .small, camera: Camera? = nil) {
         self.look = look
         self.strength = strength
@@ -48,7 +49,7 @@ public enum Renderer {
 
     /// CPU reference (look, strength, grain). Recipe adjustments are GPU-only.
     public static func renderCPU(_ base: RGBImage, settings: RenderSettings) throws -> RGBImage {
-        let looked = try applyLook(settings.look, camera: settings.camera, to: base)
+        let looked = settings.strength > 0 ? try applyLook(settings.look, camera: settings.camera, to: base) : base
         let grain = settings.grain == .off ? nil
             : GrainField(width: base.width, height: base.height, size: settings.grainSize)
         return finish(base: base, looked: looked, settings: settings, grain: grain)

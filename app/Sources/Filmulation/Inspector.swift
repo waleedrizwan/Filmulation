@@ -50,12 +50,21 @@ struct Inspector: View {
 
                     section("Film Simulation") {
                         VStack(spacing: 4) {
+                            LookRow(name: "Original", blurb: "Your photo's own colours, with no film look.",
+                                    swatch: store.original, selected: store.settings.look == nil) {
+                                store.chooseLook(nil)
+                            }
                             ForEach(store.availableLooks) { look in
-                                LookRow(look: look, swatch: store.swatches[look.id],
+                                LookRow(name: look.name, blurb: look.blurb, swatch: store.swatches[look.id],
                                         selected: store.settings.look == look) {
                                     store.chooseLook(look)
                                 }
                             }
+                        }
+                        if store.availableLooks.isEmpty {
+                            Text("No film looks are installed yet. Grain, strength and export still work.")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
 
@@ -133,9 +142,10 @@ struct Inspector: View {
     }
 }
 
-/// One film simulation: a preview of the current photo in that look, its name and what it does.
+/// One film simulation (or the original): a preview of the current photo in that look, its name and what it does.
 private struct LookRow: View {
-    let look: Look
+    let name: String
+    let blurb: String
     let swatch: CGImage?
     let selected: Bool
     let action: () -> Void
@@ -154,9 +164,9 @@ private struct LookRow: View {
                 .frame(width: 64, height: 64)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(look.name)
+                    Text(name)
                         .font(.body.weight(.semibold))
-                    Text(look.blurb)
+                    Text(blurb)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

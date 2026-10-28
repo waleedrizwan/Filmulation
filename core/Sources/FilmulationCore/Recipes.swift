@@ -36,7 +36,7 @@ public struct Recipe: Identifiable, Hashable, Sendable {
     /// Settings this recipe produces (keeps the caller's camera and strength).
     public func apply(to settings: RenderSettings) -> RenderSettings {
         var s = settings
-        if let lookID, let look = Looks.look(lookID) { s.look = look }
+        if let lookID, let look = Looks.look(lookID), Looks.isInstalled(look, camera: s.camera) { s.look = look }
         s.grain = grain
         s.grainSize = grainSize
         s.adjustments = adjustments

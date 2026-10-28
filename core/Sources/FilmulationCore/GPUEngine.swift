@@ -105,7 +105,10 @@ public final class GPUEngine: @unchecked Sendable {
             exposure: a.exposure, wbRed: a.wbRed, wbBlue: a.wbBlue, highlight: a.highlight, shadow: a.shadow,
             color: a.color, chrome: a.chrome, chromeBlue: a.chromeBlue,
             seed: seed)
-        let lut = try settings.look.map { try lutTexture(for: $0, camera: settings.camera) } ?? identityLUT
+        // At zero strength the look isn't used, so don't require its file
+        let lut = params.strength > 0
+            ? try settings.look.map { try lutTexture(for: $0, camera: settings.camera) } ?? identityLUT
+            : identityLUT
 
         guard let cmd = queue.makeCommandBuffer(), let enc = cmd.makeComputeCommandEncoder() else {
             throw CocoaError(.featureUnsupported)

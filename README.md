@@ -2,7 +2,7 @@
 
 Film looks for any photo: on the Mac and the iPhone, fully on-device, GPU-fast.
 
-> **Status:** no film looks are included right now. The engine, apps, grain, strength, before/after and batch export all work. They're waiting on a set of openly licensed film looks that can be shared freely. Until then the look list is empty.
+> **Status:** no film looks are included right now. The engine, apps, grain, strength, before/after and batch export all work. They're waiting on a set of openly licensed film looks that can be shared freely. Until then the only look is **Original**: grain and export still work, and the look list fills in once look files are installed (see [`core/Sources/FilmulationCore/Resources/LUTs/README.md`](core/Sources/FilmulationCore/Resources/LUTs/README.md)).
 
 ## Build
 
@@ -25,6 +25,8 @@ In Xcode, set your own Team and bundle identifier under *Signing & Capabilities*
 ```bash
 swift test --package-path core
 ```
+
+Engine tests use a made-up look, so they run anywhere. Tests that check the real film looks are skipped when no look files are installed.
 
 ## Layout
 

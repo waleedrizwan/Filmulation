@@ -109,7 +109,7 @@ private struct Preview: View {
             }
             .overlay(alignment: .topLeading) {
                 if store.original != nil {
-                    Text(store.showBefore ? "Before" : "After · \(store.settings.look?.name ?? "Original")")
+                    Text(previewLabel)
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 10).padding(.vertical, 5)
                         .background(.black.opacity(0.6), in: Capsule())
@@ -125,6 +125,13 @@ private struct Preview: View {
             .frame(width: 200)
         }
         .padding(.top, 6)
+    }
+
+    private var previewLabel: String {
+        let name = store.settings.look?.name ?? "Original"
+        if store.showBefore { return "Before" }
+        if let error = store.renderError, store.rendered == nil { return "Couldn't apply \(name): \(error)" }
+        return "After · \(name)"
     }
 }
 
@@ -179,8 +186,13 @@ private struct Controls: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
+                        LookCard(name: "Original", swatch: store.original, selected: store.settings.look == nil) {
+                            store.chooseLook(nil)
+                            withAnimation { proxy.scrollTo("original", anchor: .center) }
+                        }
+                        .id("original")
                         ForEach(store.availableLooks) { look in
-                            LookCard(look: look, swatch: store.swatches[look.id],
+                            LookCard(name: look.name, swatch: store.swatches[look.id],
                                      selected: store.settings.look == look) {
                                 store.chooseLook(look)
                                 withAnimation { proxy.scrollTo(look.id, anchor: .center) }
@@ -198,8 +210,10 @@ private struct Controls: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2, reservesSpace: true)
                     .padding(.horizontal, 16)
-            } else if let look = store.settings.look {
-                Text(look.blurb)
+            } else {
+                Text(store.settings.look?.blurb ?? (store.availableLooks.isEmpty
+                    ? "No film looks are installed yet. Grain, strength and saving still work."
+                    : "Your photo's own colours, with no film look."))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(2, reservesSpace: true)
@@ -238,7 +252,7 @@ private struct Controls: View {
 }
 
 private struct LookCard: View {
-    let look: Look
+    let name: String
     let swatch: CGImage?
     let selected: Bool
     let action: () -> Void
@@ -257,7 +271,7 @@ private struct LookCard: View {
                 .frame(width: 76, height: 76)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white, lineWidth: selected ? 2.5 : 0))
-                Text(look.name)
+                Text(name)
                     .font(.caption2.weight(selected ? .bold : .regular))
                     .foregroundStyle(selected ? .white : .secondary)
                     .lineLimit(1)
