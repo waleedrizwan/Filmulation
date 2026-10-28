@@ -1,0 +1,24 @@
+third_party/
+research_notes/
+.DS_Store
+.build/
+.venv/
+lab/testimages/
+lab/out/
+app/.build/
+core/.build/
+ios/build/
+app/build/
+
+# Film-look files are generated locally and not published
+core/Sources/FilmulationCore/Resources/LUTs/*.lut
+ios/FilmulationiOS.xcodeproj/xcuserdata/
+ios/FilmulationiOS.xcodeproj/project.xcworkspace/xcuserdata/
+core/Sources/FilmulationCore/Resources/LUTs/*.json
+
+# Fujifilm LUT tooling and research: kept locally for personal use only, never published
+# (Fujifilm does not permit distributing its LUTs, converted versions, or a tool that converts them)
+make_looks.sh
+lab/
+research.md
+reports/
